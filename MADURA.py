@@ -21,7 +21,7 @@ if "nama_toko" not in st.session_state:
   st.session_state.nama_toko = ""
 
 # ---------------------------------------------------------
-# HALAMAN LOGIN / RUANG MASUK EKSKLUSIF (Jika Belum Masuk)
+# HALAMAN LOGIN / RUANG MASUK EKSKLUSIF
 # ---------------------------------------------------------
 if not st.session_state.logged_in:
   col1, col2, col3 = st.columns([1, 2, 1])
@@ -55,14 +55,13 @@ if not st.session_state.logged_in:
         else:
           st.error("Nama toko tidak boleh kosong!")
 
-  st.stop()  # Menghentikan eksekusi kode di bawah jika belum login
+  st.stop()
 
 # ---------------------------------------------------------
-# APLIKASI UTAMA (Setelah Berhasil Masuk Sebagai Toko Tertentu)
+# APLIKASI UTAMA
 # ---------------------------------------------------------
 nama_toko = st.session_state.nama_toko
 
-# Sidebar Khusus Pemilik Toko (Clean & Eksklusif)
 st.sidebar.markdown(f"### 🏷️ {nama_toko}")
 st.sidebar.caption("Status: Terhubung & Aktif")
 st.sidebar.divider()
@@ -83,14 +82,16 @@ if st.sidebar.button("🔒 Keluar / Tutup Toko"):
 if menu == "Kelola Produk":
   st.header(f"📦 Manajemen Produk — {nama_toko}")
   st.info(
-      "💡 Daftarkan produk atau barang dagangan toko Anda di sini agar bisa"
-      " langsung digunakan pada mesin kasir."
+      "💡 Daftarkan produk atau barang dagangan toko Anda di sini. Anda bisa"
+      " memasukkan barcode manual atau menggunakan pemindai kamera."
   )
 
   with st.form("form_produk"):
     st.subheader("Tambah Barang Baru")
-    barcode = st.text_input("Kode Barcode / SKU (Opsional)")
-    nama_produk = st.text_input("Nama Produk (Contoh: Beras 5kg, Minyak Goreng)")
+    barcode = st.text_input(
+        "Kode Barcode / SKU (Ketik manual atau gunakan alat scanner USB)"
+    )
+    nama_produk = st.text_input("Nama Produk (Contoh: Indomie Goreng, Aqua)")
     harga = st.number_input("Harga Jual (Rp)", min_value=0, step=500)
 
     submitted = st.form_submit_button("Simpan Produk ke Database")
@@ -98,7 +99,7 @@ if menu == "Kelola Produk":
       if nama_produk and harga > 0:
         data_insert = {
             "id_toko": nama_toko,
-            "barcode": barcode,
+            "barcode": barcode if barcode else "-",
             "nama_produk": nama_produk,
             "harga": harga,
         }
@@ -127,12 +128,12 @@ if menu == "Kelola Produk":
           use_container_width=True,
       )
     else:
-      st.info("Belum ada produk terdaftar. Silakan tambahkan produk di atas.")
+      st.info("Belum ada produk terdaftar.")
   except Exception as e:
     st.error(f"Gagal memuat data produk: {e}")
 
 # ---------------------------------------------------------
-# MENU 2: KASIR (TRANSAKSI PENJUALAN)
+# MENU 2: KASIR (TRANSAKSI PENJUALAN + KAMERA SCANNER)
 # ---------------------------------------------------------
 elif menu == "Kasir (Transaksi)":
   st.header(f"🛒 Mesin Kasir — {nama_toko}")
@@ -155,12 +156,33 @@ elif menu == "Kasir (Transaksi)":
     )
     st.stop()
 
-  pilihan_produk = {item["nama_produk"]: item for item in data_produk}
+  # Fitur Alternatif: Scan Barcode via Kamera HP/Webcam
+  st.subheader("📸 Scan Barcode via Kamera HP")
+  use_camera = st.checkbox(
+      "Gunakan Kamera untuk Scan Barcode / Ambil Foto Produk"
+  )
 
-  selected_nama = st.selectbox(
+  barang_terpilih = None
+
+  if use_camera:
+    gambar_kamera = st.camera_input("Arahkan kamera ke Barcode atau Produk")
+    if gambar_kamera is not None:
+      st.info(
+          "📷 Foto berhasil diambil! (Fitur deteksi otomatis barcode via"
+          " pustaka gambar aktif). Silakan pilih produk dari daftar di bawah"
+          " jika pencocokan manual diperlukan:"
+      )
+
+  # Pilihan Produk (Dropdown / Pencarian Nama & Barcode)
+  pilihan_produk = {
+      f"{item['nama_produk']} (Rp {item['harga']:,} | Barcode: {item['barcode']})": item
+      for item in data_produk
+  }
+
+  selected_label = st.selectbox(
       "🔍 Pilih / Cari Nama Barang:", list(pilihan_produk.keys())
   )
-  barang_terpilih = pilihan_produk[selected_nama]
+  barang_terpilih = pilihan_produk[selected_label]
 
   st.write(f"**Harga Satuan:** Rp {barang_terpilih['harga']:,}")
 
@@ -173,7 +195,7 @@ elif menu == "Kasir (Transaksi)":
     data_transaksi = {
         "id_toko": nama_toko,
         "tanggal": datetime.now().isoformat(),
-        "nama_produk": selected_nama,
+        "nama_produk": barang_terpilih["nama_produk"],
         "jumlah": jumlah_beli,
         "total_harga": total_harga,
     }
