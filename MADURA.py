@@ -11,45 +11,89 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Konfigurasi Tampilan Halaman
 st.set_page_config(
-    page_title="Aplikasi Kasir Toko Madura", page_icon="🏪", layout="wide"
+    page_title="Aplikasi Kasir & Toko Digital", page_icon="🏪", layout="wide"
 )
 
-st.title("🏪 Aplikasi Kasir & Manajemen Toko Madura")
-
-# 2. Sistem Login / Identifikasi Toko Sederhana
-st.sidebar.header("🔐 Masuk Toko")
-nama_toko = st.sidebar.text_input(
-    "Masukkan Nama Toko Anda:", placeholder="Contoh: TOKO MADURA PULO"
-)
-
-if not nama_toko:
-  st.warning("⚠️ Silakan masukkan Nama Toko di sidebar kiri untuk mulai.")
-  st.stop()
-
-st.sidebar.success(f"Terhubung sebagai: **{nama_toko}**")
-
-# Navigasi Menu (Disarankan mulai dari Kelola Produk untuk toko baru)
-menu = st.sidebar.radio(
-    "Pilih Menu:", ["Kelola Produk", "Kasir (Transaksi)", "Laporan Penjualan"]
-)
+# Inisialisasi Session State untuk Status Login Toko
+if "logged_in" not in st.session_state:
+  st.session_state.logged_in = False
+if "nama_toko" not in st.session_state:
+  st.session_state.nama_toko = ""
 
 # ---------------------------------------------------------
-# MENU 1: KELOLA PRODUK (Pendaftaran Barang Awal)
+# HALAMAN LOGIN / RUANG MASUK EKSKLUSIF (Jika Belum Masuk)
+# ---------------------------------------------------------
+if not st.session_state.logged_in:
+  col1, col2, col3 = st.columns([1, 2, 1])
+
+  with col2:
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.markdown(
+        "<h1 style='text-align: center;'>🏪 Masuk ke Toko Anda</h1>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<p style='text-align: center; color: gray;'>Sistem Kasir Digital"
+        " Mandiri & Profesional</p>",
+        unsafe_allow_html=True,
+    )
+
+    with st.form("form_login"):
+      input_nama_toko = st.text_input(
+          "Nama Toko / Unit Usaha:",
+          placeholder="Contoh: TOKO MADURA PULO",
+      )
+      btn_masuk = st.form_submit_button(
+          "🚀 Masuk ke Sistem Kasir", use_container_width=True
+      )
+
+      if btn_masuk:
+        if input_nama_toko.strip() != "":
+          st.session_state.logged_in = True
+          st.session_state.nama_toko = input_nama_toko.strip().upper()
+          st.rerun()
+        else:
+          st.error("Nama toko tidak boleh kosong!")
+
+  st.stop()  # Menghentikan eksekusi kode di bawah jika belum login
+
+# ---------------------------------------------------------
+# APLIKASI UTAMA (Setelah Berhasil Masuk Sebagai Toko Tertentu)
+# ---------------------------------------------------------
+nama_toko = st.session_state.nama_toko
+
+# Sidebar Khusus Pemilik Toko (Clean & Eksklusif)
+st.sidebar.markdown(f"### 🏷️ {nama_toko}")
+st.sidebar.caption("Status: Terhubung & Aktif")
+st.sidebar.divider()
+
+menu = st.sidebar.radio(
+    "Pilih Menu Utama:", ["Kelola Produk", "Kasir (Transaksi)", "Laporan Penjualan"]
+)
+
+st.sidebar.divider()
+if st.sidebar.button("🔒 Keluar / Tutup Toko"):
+  st.session_state.logged_in = False
+  st.session_state.nama_toko = ""
+  st.rerun()
+
+# ---------------------------------------------------------
+# MENU 1: KELOLA PRODUK
 # ---------------------------------------------------------
 if menu == "Kelola Produk":
-  st.header("📦 Kelola Daftar Barang Dagangan")
+  st.header(f"📦 Manajemen Produk — {nama_toko}")
   st.info(
-      "💡 **Langkah Pertama:** Silakan daftarkan terlebih dahulu barang-barang"
-      " yang dijual di toko Anda pada form di bawah ini."
+      "💡 Daftarkan produk atau barang dagangan toko Anda di sini agar bisa"
+      " langsung digunakan pada mesin kasir."
   )
 
   with st.form("form_produk"):
     st.subheader("Tambah Barang Baru")
-    barcode = st.text_input("Kode Barcode / SKU (Boleh dikosongkan jika manual)")
-    nama_produk = st.text_input("Nama Produk (Contoh: Aqua 600ml, Rokok X)")
+    barcode = st.text_input("Kode Barcode / SKU (Opsional)")
+    nama_produk = st.text_input("Nama Produk (Contoh: Beras 5kg, Minyak Goreng)")
     harga = st.number_input("Harga Jual (Rp)", min_value=0, step=500)
 
-    submitted = st.form_submit_button("Simpan Produk")
+    submitted = st.form_submit_button("Simpan Produk ke Database")
     if submitted:
       if nama_produk and harga > 0:
         data_insert = {
@@ -59,13 +103,13 @@ if menu == "Kelola Produk":
             "harga": harga,
         }
         supabase.table("produk").insert(data_insert).execute()
-        st.success(f"Produk '{nama_produk}' berhasil disimpan!")
+        st.success(f"Produk '{nama_produk}' berhasil ditambahkan!")
         st.rerun()
       else:
         st.error("Nama produk dan harga wajib diisi dengan benar!")
 
   st.divider()
-  st.subheader("📋 Daftar Barang Toko Anda")
+  st.subheader("📋 Daftar Produk Toko Anda")
 
   try:
     response_produk = (
@@ -83,18 +127,15 @@ if menu == "Kelola Produk":
           use_container_width=True,
       )
     else:
-      st.info(
-          "Belum ada produk. Yuk, daftarkan produk pertama Anda menggunakan form"
-          " di atas!"
-      )
+      st.info("Belum ada produk terdaftar. Silakan tambahkan produk di atas.")
   except Exception as e:
-    st.error(f"Gagal memuat produk: {e}")
+    st.error(f"Gagal memuat data produk: {e}")
 
 # ---------------------------------------------------------
 # MENU 2: KASIR (TRANSAKSI PENJUALAN)
 # ---------------------------------------------------------
 elif menu == "Kasir (Transaksi)":
-  st.header("🛒 Kasir Penjualan")
+  st.header(f"🛒 Mesin Kasir — {nama_toko}")
 
   try:
     response_produk = (
@@ -109,26 +150,26 @@ elif menu == "Kasir (Transaksi)":
 
   if not data_produk:
     st.warning(
-        "⚠️ Belum ada produk terdaftar untuk toko ini. Silakan pindah ke menu"
-        " **Kelola Produk** terlebih dahulu untuk mendaftarkan barang."
+        "⚠️ Belum ada produk terdaftar. Silakan masuk ke menu **Kelola Produk**"
+        " terlebih dahulu."
     )
     st.stop()
 
   pilihan_produk = {item["nama_produk"]: item for item in data_produk}
 
   selected_nama = st.selectbox(
-      "Pilih / Cari Barang:", list(pilihan_produk.keys())
+      "🔍 Pilih / Cari Nama Barang:", list(pilihan_produk.keys())
   )
   barang_terpilih = pilihan_produk[selected_nama]
 
   st.write(f"**Harga Satuan:** Rp {barang_terpilih['harga']:,}")
 
-  jumlah_beli = st.number_input("Jumlah Beli", min_value=1, value=1, step=1)
+  jumlah_beli = st.number_input("Jumlah Beli (Qty)", min_value=1, value=1, step=1)
   total_harga = barang_terpilih["harga"] * jumlah_beli
 
-  st.info(f"### Total Bayar: Rp {total_harga:,}")
+  st.info(f"### 💰 Total yang Harus Dibayar: Rp {total_harga:,}")
 
-  if st.button("Proses Transaksi"):
+  if st.button("✅ Proses & Simpan Transaksi", use_container_width=True):
     data_transaksi = {
         "id_toko": nama_toko,
         "tanggal": datetime.now().isoformat(),
@@ -138,14 +179,14 @@ elif menu == "Kasir (Transaksi)":
     }
     supabase.table("transaksi").insert(data_transaksi).execute()
     st.success(
-        f"✅ Transaksi berhasil! Total: Rp {total_harga:,} tercatat di sistem."
+        f"🎉 Transaksi senilai Rp {total_harga:,} berhasil diproses dan dicatat!"
     )
 
 # ---------------------------------------------------------
 # MENU 3: LAPORAN PENJUALAN
 # ---------------------------------------------------------
 elif menu == "Laporan Penjualan":
-  st.header("📊 Riwayat & Laporan Penjualan")
+  st.header(f"📊 Laporan Omzet & Riwayat Penjualan — {nama_toko}")
 
   try:
     response_trx = (
@@ -167,8 +208,8 @@ elif menu == "Laporan Penjualan":
 
     total_omzet = df_trx["total_harga"].sum()
     st.metric(
-        label="Total Omzet Toko Anda",
+        label="Total Pendapatan / Omzet Toko",
         value=f"Rp {total_omzet:,.0f}".replace(",", "."),
     )
   else:
-    st.info("Belum ada transaksi tercatat untuk toko ini.")
+    st.info("Belum ada riwayat transaksi penjualan tercatat untuk toko ini.")
