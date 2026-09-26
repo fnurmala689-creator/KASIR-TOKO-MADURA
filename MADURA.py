@@ -83,13 +83,13 @@ if menu == "Kelola Produk":
   st.header(f"📦 Manajemen Produk — {nama_toko}")
   st.info(
       "💡 Daftarkan produk atau barang dagangan toko Anda di sini (masukkan"
-      " barcode atau nama produk & harga)."
+      " kode barcode dan harga)."
   )
 
   with st.form("form_produk"):
     st.subheader("Tambah Barang Baru")
     barcode = st.text_input(
-        "Kode Barcode / SKU (Bisa diketik atau pakai scanner fisik)"
+        "Kode Barcode / SKU (Ketik manual atau scan dengan alat)"
     )
     nama_produk = st.text_input("Nama Produk (Contoh: Indomie Goreng, Aqua)")
     harga = st.number_input("Harga Jual (Rp)", min_value=0, step=500)
@@ -133,7 +133,7 @@ if menu == "Kelola Produk":
     st.error(f"Gagal memuat data produk: {e}")
 
 # ---------------------------------------------------------
-# MENU 2: KASIR (TRANSAKSI PENJUALAN)
+# MENU 2: KASIR (TRANSAKSI + LIVE CAMERA SCANNER)
 # ---------------------------------------------------------
 elif menu == "Kasir (Transaksi)":
   st.header(f"🛒 Mesin Kasir — {nama_toko}")
@@ -156,22 +156,54 @@ elif menu == "Kasir (Transaksi)":
     )
     st.stop()
 
-  # Opsi Tambahan: Ambil Foto / Scan Barcode via Kamera HP
-  with st.expander("📷 Buka Kamera untuk Ambil Foto / Dokumentasi Transaksi"):
-    foto_barang = st.camera_input("Potret barang yang dibeli")
-    if foto_barang:
-      st.success("📸 Foto berhasil diambil dan dilampirkan pada sesi ini.")
+  # Integrasi Live Barcode/QR Scanner Menggunakan Kamera HP
+  st.subheader("📷 Scan Barcode via Kamera HP")
 
-  # Pilihan Produk via Dropdown / Pencarian Cepat
+  kode_hasil_scan = None
+  try:
+    from streamlit_qrcode_scanner import qrcode_scanner
+
+    # Membuka jendela scanner kamera live
+    scan_result = qrcode_scanner(key="barcode_scanner")
+    if scan_result:
+      st.success(f"🎉 Barcode Berhasil Terdeteksi: **{scan_result}**")
+      kode_hasil_scan = str(scan_result)
+  except Exception as e:
+    st.info(
+        "💡 (Jika kamera belum aktif, pastikan Anda memberikan izin akses kamera"
+        " pada browser HP/laptop Anda)."
+    )
+
+  # Cari produk berdasarkan hasil scan kamera, atau pilih dari daftar
+  barang_terpilih = None
+  if kode_hasil_scan:
+    # Cari di database lokal yang cocok dengan barcode hasil scan
+    cocok = [
+        item
+        for item in data_produk
+        if str(item.get("barcode")).strip() == kode_hasil_scan.strip()
+    ]
+    if cocok:
+      barang_terpilih = cocok[0]
+      st.success(f"✅ Barang Ditemukan: **{barang_terpilih['nama_produk']}**")
+    else:
+      st.warning(
+          f"⚠️ Barcode '{kode_hasil_scan}' tidak ditemukan di database produk"
+          " Anda. Silakan daftarkan dulu di menu Kelola Produk."
+      )
+
+  # Jika belum ada dari scan, sediakan pilihan manual / dropdown
   pilihan_produk = {
       f"{item['nama_produk']} (Rp {item['harga']:,} | Barcode: {item['barcode']})": item
       for item in data_produk
   }
 
   selected_label = st.selectbox(
-      "🔍 Pilih / Cari Nama Barang:", list(pilihan_produk.keys())
+      "🔍 Atau Pilih Manual dari Daftar:", list(pilihan_produk.keys())
   )
-  barang_terpilih = pilihan_produk[selected_label]
+
+  if not barang_terpilih:
+    barang_terpilih = pilihan_produk[selected_label]
 
   st.write(f"**Harga Satuan:** Rp {barang_terpilih['harga']:,}")
 
