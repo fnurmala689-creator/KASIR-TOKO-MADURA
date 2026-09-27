@@ -4,9 +4,10 @@ import streamlit as st
 from supabase import create_client
 
 # 1. Konfigurasi Koneksi Supabase (diambil dari Streamlit Secrets, BUKAN hardcode)
-SUPABASE_URL = st.secrets["https://hpqsdvyrdsxbmopikotu.supabase.co"]
-SUPABASE_ANON_KEY = st.secrets["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhwcXNkdnlyZHN4Ym1vcGlrb3R1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0MDg0NjIsImV4cCI6MjEwNTk4NDQ2Mn0.bWR2sLAIoBZ5atbeAWn-LmsqnrqOoGXhcatkfYUG2VY"]
-SUPABASE_SERVICE_ROLE_KEY = st.secrets["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhwcXNkdnlyZHN4Ym1vcGlrb3R1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MDQwODQ2MiwiZXhwIjoyMTA1OTg0NDYyfQ.RSuTLG7qsEPRxBgUFKInEczZvJ-5yQsjHKxtBRi6LJE"]
+   SUPABASE_URL = st.secrets["SUPABASE_URL"]
+   SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
+   SUPABASE_SERVICE_ROLE_KEY = st.secrets["SUPABASE_SERVICE_ROLE_KEY"]
+
 
 # Client biasa: dipakai untuk semua operasi normal, tunduk pada RLS
 supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
