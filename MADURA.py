@@ -14,14 +14,28 @@ st.set_page_config(
     page_title="Aplikasi Kasir & Toko Digital", page_icon="🏪", layout="wide"
 )
 
-# Inisialisasi Session State untuk Status Login Toko
-if "logged_in" not in st.session_state:
-  st.session_state.logged_in = False
-if "nama_toko" not in st.session_state:
-  st.session_state.nama_toko = ""
+# Inisialisasi Session State
+for key, default in [
+    ("logged_in", False),
+    ("nama_toko", ""),
+    ("access_token", None),
+    ("refresh_token", None),
+]:
+  if key not in st.session_state:
+    st.session_state[key] = default
+
+# Pulihkan sesi login Supabase Auth setiap kali script dijalankan ulang
+# (perlu karena Streamlit re-run seluruh script tiap ada interaksi)
+if st.session_state.logged_in and st.session_state.access_token:
+  try:
+    supabase.auth.set_session(
+        st.session_state.access_token, st.session_state.refresh_token
+    )
+  except Exception:
+    st.session_state.logged_in = False
 
 # ---------------------------------------------------------
-# HALAMAN LOGIN / RUANG MASUK EKSKLUSIF
+# HALAMAN LOGIN / DAFTAR AKUN
 # ---------------------------------------------------------
 if not st.session_state.logged_in:
   col1, col2, col3 = st.columns([1, 2, 1])
@@ -29,31 +43,87 @@ if not st.session_state.logged_in:
   with col2:
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.markdown(
-        "<h1 style='text-align: center;'>🏪 Masuk ke Toko Anda</h1>",
+        "<h1 style='text-align: center;'>🏪 Sistem Kasir Toko</h1>",
         unsafe_allow_html=True,
     )
     st.markdown(
-        "<p style='text-align: center; color: gray;'>Sistem Kasir Digital"
-        " Mandiri & Profesional</p>",
+        "<p style='text-align: center; color: gray;'>Masuk atau daftarkan"
+        " toko Anda</p>",
         unsafe_allow_html=True,
     )
 
-    with st.form("form_login"):
-      input_nama_toko = st.text_input(
-          "Nama Toko / Unit Usaha:",
-          placeholder="Contoh: TOKO MADURA PULO",
-      )
-      btn_masuk = st.form_submit_button(
-          "🚀 Masuk ke Sistem Kasir", use_container_width=True
-      )
+    tab_masuk, tab_daftar = st.tabs(["🔑 Masuk", "📝 Daftar Toko Baru"])
 
-      if btn_masuk:
-        if input_nama_toko.strip() != "":
-          st.session_state.logged_in = True
-          st.session_state.nama_toko = input_nama_toko.strip().upper()
-          st.rerun()
-        else:
-          st.error("Nama toko tidak boleh kosong!")
+    # ---------------- TAB MASUK ----------------
+    with tab_masuk:
+      with st.form("form_login"):
+        email_masuk = st.text_input("Email")
+        password_masuk = st.text_input("Password", type="password")
+        btn_masuk = st.form_submit_button(
+            "🚀 Masuk ke Sistem Kasir", use_container_width=True
+        )
+
+        if btn_masuk:
+          if not email_masuk or not password_masuk:
+            st.error("Email dan password wajib diisi!")
+          else:
+            try:
+              result = supabase.auth.sign_in_with_password(
+                  {"email": email_masuk, "password": password_masuk}
+              )
+              user = result.user
+              session = result.session
+              nama_toko_login = (user.user_metadata or {}).get(
+                  "nama_toko", "TOKO SAYA"
+              )
+
+              st.session_state.logged_in = True
+              st.session_state.nama_toko = nama_toko_login
+              st.session_state.access_token = session.access_token
+              st.session_state.refresh_token = session.refresh_token
+              st.rerun()
+            except Exception as e:
+              st.error(f"Gagal masuk. Cek kembali email/password Anda. ({e})")
+
+    # ---------------- TAB DAFTAR ----------------
+    with tab_daftar:
+      with st.form("form_daftar"):
+        nama_toko_baru = st.text_input(
+            "Nama Toko / Unit Usaha:",
+            placeholder="Contoh: TOKO MADURA PULO",
+        )
+        email_daftar = st.text_input("Email", key="email_daftar")
+        password_daftar = st.text_input(
+            "Password (minimal 6 karakter)", type="password", key="pw_daftar"
+        )
+        btn_daftar = st.form_submit_button(
+            "📝 Daftar Toko Baru", use_container_width=True
+        )
+
+        if btn_daftar:
+          if (
+              not nama_toko_baru.strip()
+              or not email_daftar.strip()
+              or len(password_daftar) < 6
+          ):
+            st.error(
+                "Lengkapi semua data. Password minimal 6 karakter."
+            )
+          else:
+            try:
+              supabase.auth.sign_up({
+                  "email": email_daftar,
+                  "password": password_daftar,
+                  "options": {
+                      "data": {"nama_toko": nama_toko_baru.strip().upper()}
+                  },
+              })
+              st.success(
+                  "✅ Pendaftaran berhasil! Silakan masuk lewat tab '🔑"
+                  " Masuk' di atas."
+              )
+            except Exception as e:
+              st.error(f"Gagal mendaftar: {e}")
 
   st.stop()
 
@@ -72,8 +142,14 @@ menu = st.sidebar.radio(
 
 st.sidebar.divider()
 if st.sidebar.button("🔒 Keluar / Tutup Toko"):
+  try:
+    supabase.auth.sign_out()
+  except Exception:
+    pass
   st.session_state.logged_in = False
   st.session_state.nama_toko = ""
+  st.session_state.access_token = None
+  st.session_state.refresh_token = None
   st.rerun()
 
 # ---------------------------------------------------------
@@ -86,11 +162,9 @@ if menu == "Kelola Produk":
       " kode barcode dan harga)."
   )
 
-  # Inisialisasi tempat penyimpanan hasil scan
   if "hasil_scan_produk" not in st.session_state:
     st.session_state.hasil_scan_produk = ""
 
-  # ---------------- SCANNER KAMERA (DI LUAR FORM) ----------------
   st.subheader("📷 Scan Barcode via Kamera HP")
   try:
     from streamlit_qrcode_scanner import qrcode_scanner
@@ -107,7 +181,6 @@ if menu == "Kelola Produk":
 
   st.divider()
 
-  # ---------------- FORM TAMBAH PRODUK ----------------
   with st.form("form_produk"):
     st.subheader("Tambah Barang Baru")
     barcode = st.text_input(
@@ -128,7 +201,7 @@ if menu == "Kelola Produk":
         }
         supabase.table("produk").insert(data_insert).execute()
         st.success(f"Produk '{nama_produk}' berhasil ditambahkan!")
-        st.session_state.hasil_scan_produk = ""  # reset setelah simpan
+        st.session_state.hasil_scan_produk = ""
         st.rerun()
       else:
         st.error("Nama produk dan harga wajib diisi dengan benar!")
@@ -137,12 +210,7 @@ if menu == "Kelola Produk":
   st.subheader("📋 Daftar Produk Toko Anda")
 
   try:
-    response_produk = (
-        supabase.table("produk")
-        .select("*")
-        .eq("id_toko", nama_toko)
-        .execute()
-    )
+    response_produk = supabase.table("produk").select("*").execute()
     data_produk = response_produk.data
 
     if data_produk:
@@ -163,14 +231,9 @@ elif menu == "Kasir (Transaksi)":
   st.header(f"🛒 Mesin Kasir — {nama_toko}")
 
   try:
-    response_produk = (
-        supabase.table("produk")
-        .select("*")
-        .eq("id_toko", nama_toko)
-        .execute()
-    )
+    response_produk = supabase.table("produk").select("*").execute()
     data_produk = response_produk.data
-  except:
+  except Exception:
     data_produk = []
 
   if not data_produk:
@@ -180,14 +243,12 @@ elif menu == "Kasir (Transaksi)":
     )
     st.stop()
 
-  # Integrasi Live Barcode/QR Scanner Menggunakan Kamera HP
   st.subheader("📷 Scan Barcode via Kamera HP")
 
   kode_hasil_scan = None
   try:
     from streamlit_qrcode_scanner import qrcode_scanner
 
-    # Membuka jendela scanner kamera live
     scan_result = qrcode_scanner(key="barcode_scanner")
     if scan_result:
       st.success(f"🎉 Barcode Berhasil Terdeteksi: **{scan_result}**")
@@ -198,10 +259,8 @@ elif menu == "Kasir (Transaksi)":
         " pada browser HP/laptop Anda)."
     )
 
-  # Cari produk berdasarkan hasil scan kamera, atau pilih dari daftar
   barang_terpilih = None
   if kode_hasil_scan:
-    # Cari di database lokal yang cocok dengan barcode hasil scan
     cocok = [
         item
         for item in data_produk
@@ -216,7 +275,6 @@ elif menu == "Kasir (Transaksi)":
           " Anda. Silakan daftarkan dulu di menu Kelola Produk."
       )
 
-  # Jika belum ada dari scan, sediakan pilihan manual / dropdown
   pilihan_produk = {
       f"{item['nama_produk']} (Rp {item['harga']:,} | Barcode: {item['barcode']})": item
       for item in data_produk
@@ -256,14 +314,9 @@ elif menu == "Laporan Penjualan":
   st.header(f"📊 Laporan Omzet & Riwayat Penjualan — {nama_toko}")
 
   try:
-    response_trx = (
-        supabase.table("transaksi")
-        .select("*")
-        .eq("id_toko", nama_toko)
-        .execute()
-    )
+    response_trx = supabase.table("transaksi").select("*").execute()
     data_trx = response_trx.data
-  except:
+  except Exception:
     data_trx = []
 
   if data_trx:
