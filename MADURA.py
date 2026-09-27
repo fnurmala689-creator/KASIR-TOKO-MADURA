@@ -3,11 +3,17 @@ import pandas as pd
 import streamlit as st
 from supabase import create_client
 
-# 1. Konfigurasi Koneksi Supabase
-SUPABASE_URL = "https://hpqsdvyrdsxbmopikotu.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhwcXNkdnlyZHN4Ym1vcGlrb3R1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0MDg0NjIsImV4cCI6MjEwNTk4NDQ2Mn0.bWR2sLAIoBZ5atbeAWn-LmsqnrqOoGXhcatkfYUG2VY"
+# 1. Konfigurasi Koneksi Supabase (diambil dari Streamlit Secrets, BUKAN hardcode)
+SUPABASE_URL = st.secrets["https://hpqsdvyrdsxbmopikotu.supabase.co"]
+SUPABASE_ANON_KEY = st.secrets["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhwcXNkdnlyZHN4Ym1vcGlrb3R1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0MDg0NjIsImV4cCI6MjEwNTk4NDQ2Mn0.bWR2sLAIoBZ5atbeAWn-LmsqnrqOoGXhcatkfYUG2VY"]
+SUPABASE_SERVICE_ROLE_KEY = st.secrets["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhwcXNkdnlyZHN4Ym1vcGlrb3R1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MDQwODQ2MiwiZXhwIjoyMTA1OTg0NDYyfQ.RSuTLG7qsEPRxBgUFKInEczZvJ-5yQsjHKxtBRi6LJE"]
 
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+# Client biasa: dipakai untuk semua operasi normal, tunduk pada RLS
+supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+# Client admin: HANYA dipakai untuk hapus akun permanen. Bisa bypass RLS,
+# jadi jangan pernah dipakai untuk operasi biasa.
+supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 # Konfigurasi Tampilan Halaman
 st.set_page_config(
@@ -20,19 +26,41 @@ for key, default in [
     ("nama_toko", ""),
     ("access_token", None),
     ("refresh_token", None),
+    ("user_id", None),
+    ("status_akun", "aktif"),
 ]:
   if key not in st.session_state:
     st.session_state[key] = default
 
 # Pulihkan sesi login Supabase Auth setiap kali script dijalankan ulang
-# (perlu karena Streamlit re-run seluruh script tiap ada interaksi)
 if st.session_state.logged_in and st.session_state.access_token:
   try:
     supabase.auth.set_session(
         st.session_state.access_token, st.session_state.refresh_token
     )
+    # Ambil data user TERBARU (bisa saja status/metadata berubah sejak login)
+    user_terbaru = supabase.auth.get_user().user
+    st.session_state.status_akun = (user_terbaru.user_metadata or {}).get(
+        "status", "aktif"
+    )
   except Exception:
     st.session_state.logged_in = False
+
+
+def logout():
+  try:
+    supabase.auth.sign_out()
+  except Exception:
+    pass
+  for key in [
+      "logged_in", "nama_toko", "access_token", "refresh_token",
+      "user_id", "status_akun",
+  ]:
+    st.session_state[key] = False if key == "logged_in" else (
+        "aktif" if key == "status_akun" else "" if key == "nama_toko" else None
+    )
+  st.rerun()
+
 
 # ---------------------------------------------------------
 # HALAMAN LOGIN / DAFTAR AKUN
@@ -54,7 +82,6 @@ if not st.session_state.logged_in:
 
     tab_masuk, tab_daftar = st.tabs(["🔑 Masuk", "📝 Daftar Toko Baru"])
 
-    # ---------------- TAB MASUK ----------------
     with tab_masuk:
       with st.form("form_login"):
         email_masuk = st.text_input("Email")
@@ -73,19 +100,18 @@ if not st.session_state.logged_in:
               )
               user = result.user
               session = result.session
-              nama_toko_login = (user.user_metadata or {}).get(
-                  "nama_toko", "TOKO SAYA"
-              )
+              metadata = user.user_metadata or {}
 
               st.session_state.logged_in = True
-              st.session_state.nama_toko = nama_toko_login
+              st.session_state.nama_toko = metadata.get("nama_toko", "TOKO SAYA")
               st.session_state.access_token = session.access_token
               st.session_state.refresh_token = session.refresh_token
+              st.session_state.user_id = user.id
+              st.session_state.status_akun = metadata.get("status", "aktif")
               st.rerun()
             except Exception as e:
               st.error(f"Gagal masuk. Cek kembali email/password Anda. ({e})")
 
-    # ---------------- TAB DAFTAR ----------------
     with tab_daftar:
       with st.form("form_daftar"):
         nama_toko_baru = st.text_input(
@@ -106,16 +132,17 @@ if not st.session_state.logged_in:
               or not email_daftar.strip()
               or len(password_daftar) < 6
           ):
-            st.error(
-                "Lengkapi semua data. Password minimal 6 karakter."
-            )
+            st.error("Lengkapi semua data. Password minimal 6 karakter.")
           else:
             try:
               supabase.auth.sign_up({
                   "email": email_daftar,
                   "password": password_daftar,
                   "options": {
-                      "data": {"nama_toko": nama_toko_baru.strip().upper()}
+                      "data": {
+                          "nama_toko": nama_toko_baru.strip().upper(),
+                          "status": "aktif",
+                      }
                   },
               })
               st.success(
@@ -124,6 +151,30 @@ if not st.session_state.logged_in:
               )
             except Exception as e:
               st.error(f"Gagal mendaftar: {e}")
+
+  st.stop()
+
+# ---------------------------------------------------------
+# LAYAR AKUN NONAKTIF (kalau status = nonaktif)
+# ---------------------------------------------------------
+if st.session_state.status_akun == "nonaktif":
+  col1, col2, col3 = st.columns([1, 2, 1])
+  with col2:
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.warning(f"⏸️ Akun toko **{st.session_state.nama_toko}** sedang dinonaktifkan.")
+    st.write("Data Anda aman dan tidak dihapus. Anda bisa mengaktifkan kembali kapan saja.")
+
+    if st.button("✅ Aktifkan Kembali Akun Saya", use_container_width=True):
+      try:
+        supabase.auth.update_user({"data": {"status": "aktif"}})
+        st.session_state.status_akun = "aktif"
+        st.success("Akun berhasil diaktifkan kembali!")
+        st.rerun()
+      except Exception as e:
+        st.error(f"Gagal mengaktifkan akun: {e}")
+
+    if st.button("🔒 Keluar", use_container_width=True):
+      logout()
 
   st.stop()
 
@@ -137,20 +188,13 @@ st.sidebar.caption("Status: Terhubung & Aktif")
 st.sidebar.divider()
 
 menu = st.sidebar.radio(
-    "Pilih Menu Utama:", ["Kelola Produk", "Kasir (Transaksi)", "Laporan Penjualan"]
+    "Pilih Menu Utama:",
+    ["Kelola Produk", "Kasir (Transaksi)", "Laporan Penjualan", "Pengaturan Akun"],
 )
 
 st.sidebar.divider()
 if st.sidebar.button("🔒 Keluar / Tutup Toko"):
-  try:
-    supabase.auth.sign_out()
-  except Exception:
-    pass
-  st.session_state.logged_in = False
-  st.session_state.nama_toko = ""
-  st.session_state.access_token = None
-  st.session_state.refresh_token = None
-  st.rerun()
+  logout()
 
 # ---------------------------------------------------------
 # MENU 1: KELOLA PRODUK (dengan fitur scan kamera)
@@ -333,3 +377,62 @@ elif menu == "Laporan Penjualan":
     )
   else:
     st.info("Belum ada riwayat transaksi penjualan tercatat untuk toko ini.")
+
+# ---------------------------------------------------------
+# MENU 4: PENGATURAN AKUN (nonaktifkan / hapus permanen)
+# ---------------------------------------------------------
+elif menu == "Pengaturan Akun":
+  st.header(f"⚙️ Pengaturan Akun — {nama_toko}")
+
+  # ---------------- NONAKTIFKAN AKUN ----------------
+  st.subheader("⏸️ Nonaktifkan Akun Sementara")
+  st.write(
+      "Akun dan data Anda tetap tersimpan aman. Anda bisa mengaktifkan"
+      " kembali kapan saja dengan login ulang."
+  )
+  if st.button("Nonaktifkan Akun Saya"):
+    try:
+      supabase.auth.update_user({"data": {"status": "nonaktif"}})
+      st.success("Akun dinonaktifkan. Anda akan keluar sekarang...")
+      logout()
+    except Exception as e:
+      st.error(f"Gagal menonaktifkan akun: {e}")
+
+  st.divider()
+
+  # ---------------- HAPUS PERMANEN ----------------
+  st.subheader("🗑️ Hapus Akun Permanen")
+  st.error(
+      "⚠️ PERINGATAN: Ini akan menghapus akun, seluruh data produk, dan"
+      " riwayat transaksi toko Anda SECARA PERMANEN. Tindakan ini TIDAK"
+      " BISA DIBATALKAN."
+  )
+
+  konfirmasi_paham = st.checkbox(
+      "Saya paham tindakan ini permanen dan tidak bisa dibatalkan."
+  )
+  konfirmasi_teks = st.text_input(
+      "Ketik HAPUS (huruf kapital semua) untuk konfirmasi:"
+  )
+
+  if st.button("🗑️ Hapus Akun Saya Selamanya", type="primary"):
+    if not konfirmasi_paham or konfirmasi_teks != "HAPUS":
+      st.error(
+          "Centang kotak persetujuan dan ketik 'HAPUS' dengan benar terlebih"
+          " dahulu."
+      )
+    else:
+      try:
+        user_id = st.session_state.user_id
+
+        # 1. Hapus semua data produk milik akun ini
+        supabase_admin.table("produk").delete().eq("owner_id", user_id).execute()
+        # 2. Hapus semua data transaksi milik akun ini
+        supabase_admin.table("transaksi").delete().eq("owner_id", user_id).execute()
+        # 3. Hapus akun dari Supabase Auth
+        supabase_admin.auth.admin.delete_user(user_id)
+
+        st.success("Akun berhasil dihapus permanen. Sampai jumpa!")
+        logout()
+      except Exception as e:
+        st.error(f"Gagal menghapus akun: {e}")
